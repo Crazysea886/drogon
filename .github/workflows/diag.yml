@@ -1,0 +1,55 @@
+name: diag-shared-hang
+
+on:
+  workflow_dispatch:
+
+jobs:
+  windows-shared:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout Drogon source code
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: pip install conan
+
+      - name: Create build directory
+        run: mkdir build
+
+      - name: Install conan packages
+        working-directory: ./build
+        run: |
+          conan profile detect
+          conan install .. -s compiler="msvc" -sbuild_type=Debug --build=missing -s compiler.cppstd=17
+
+      - name: Create Build Environment & Configure Cmake
+        shell: bash
+        working-directory: ./build
+        run: |
+          cmake ..                                \
+            -DCMAKE_BUILD_TYPE=Debug              \
+            -DBUILD_TESTING=on                    \
+            -DBUILD_SHARED_LIBS=ON                \
+            -DCMAKE_TOOLCHAIN_FILE="conan_toolchain.cmake" \
+            -DBUILD_CTL=OFF                       \
+            -DBUILD_EXAMPLES=OFF                  \
+            -DUSE_SPDLOG=ON                       \
+            -DCMAKE_INSTALL_PREFIX=../install     \
+            -DCMAKE_POLICY_DEFAULT_CMP0091=NEW    \
+            -DCMAKE_CXX_STANDARD=17
+
+      - name: Build
+        run: cmake --build build --target install --parallel
+
+      - name: Run the test ten times
+        shell: bash
+        run: |
+          export PATH="$GITHUB_WORKSPACE/install/bin:$PATH"
+          cd build
+          for i in $(seq 1 10); do
+            echo "================ attempt $i ================"
+            ctest -C Debug -R sqlite3_failed_commit --output-on-failure --timeout 90 || true
+          done
